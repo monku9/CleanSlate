@@ -3,7 +3,11 @@
 CleanSlate
 ==========
 A dead-simple app that backs up your files to a USB flash drive before a
-clean Windows install, then hands you a plain-English checklist for the rest.
+clean Windows install (or a ChromeOS Powerwash), then hands you a
+plain-English checklist for the rest.
+
+Works on Windows, ChromeOS (via the Linux/Crostini container), macOS, and
+general Linux.
 
 No accounts. No internet required. No external libraries -
 just Python's standard library, start to finish.
@@ -13,12 +17,15 @@ License: MIT
 """
 
 import os
+import sys
 import string
 import shutil
 import queue
 import threading
 import time
 import datetime
+import platform as platform_module
+import subprocess
 import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -27,7 +34,35 @@ if os.name == "nt":
     import ctypes
 
 APP_NAME = "CleanSlate"
-APP_VERSION = "2.0"
+APP_VERSION = "2.1"
+
+
+def detect_platform():
+    """Figure out which OS we're really running on.
+
+    ChromeOS doesn't run Python natively - it runs inside the Linux
+    (Crostini) container, which looks like plain Debian. We check for a
+    couple of ChromeOS-specific fingerprints to tell the difference:
+      - /dev/.cros_milestone only exists inside a ChromeOS Linux container
+      - /mnt/chromeos is the special folder ChromeOS shares into that
+        container (Downloads, removable drives, etc.)
+      - "penguin" is the default hostname Crostini gives its container
+    """
+    if os.name == "nt":
+        return "windows"
+    if sys.platform == "darwin":
+        return "mac"
+    try:
+        if (os.path.exists("/dev/.cros_milestone")
+                or os.path.isdir("/mnt/chromeos")
+                or platform_module.node() == "penguin"):
+            return "chromeos"
+    except Exception:
+        pass
+    return "linux"
+
+
+PLATFORM = detect_platform()
 
 # ----------------------------------------------------------------------
 # Theme - dark, purple, with a hint of blue. Change these and the whole
@@ -69,10 +104,16 @@ def human_size(num_bytes):
     return f"{num_bytes:.1f} PB"
 
 
-def get_removable_drives():
+def _drive_entry(path, label):
+    try:
+        usage = shutil.disk_usage(path)
+        return {"path": path, "label": label, "free": usage.free, "total": usage.total}
+    except Exception:
+        return None
+
+
+def _get_removable_drives_windows():
     drives = []
-    if os.name != "nt":
-        return drives
     DRIVE_REMOVABLE = 2
     bitmask = ctypes.windll.kernel32.GetLogicalDrives()
     for i, letter in enumerate(string.ascii_uppercase):
@@ -109,6 +150,64 @@ def get_removable_drives():
             "total": total_bytes.value,
         })
     return drives
+
+
+def _get_removable_drives_chromeos():
+    """On ChromeOS, a USB drive only shows up here after the user shares it
+    with Linux from the Files app (right-click the drive -> Share with
+    Linux). ChromeOS then mounts it under /mnt/chromeos/removable/."""
+    drives = []
+    base = "/mnt/chromeos/removable"
+    if os.path.isdir(base):
+        for name in sorted(os.listdir(base)):
+            entry = _drive_entry(os.path.join(base, name), name)
+            if entry:
+                drives.append(entry)
+    return drives
+
+
+def _get_removable_drives_linux():
+    drives = []
+    seen_paths = set()
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    candidate_bases = [f"/media/{user}", f"/run/media/{user}", "/media"]
+    for base in candidate_bases:
+        if not os.path.isdir(base):
+            continue
+        for name in sorted(os.listdir(base)):
+            path = os.path.join(base, name)
+            if path in seen_paths or not os.path.isdir(path):
+                continue
+            seen_paths.add(path)
+            entry = _drive_entry(path, name)
+            if entry:
+                drives.append(entry)
+    return drives
+
+
+def _get_removable_drives_mac():
+    drives = []
+    base = "/Volumes"
+    if os.path.isdir(base):
+        for name in sorted(os.listdir(base)):
+            if name == "Macintosh HD":
+                continue
+            path = os.path.join(base, name)
+            if os.path.isdir(path):
+                entry = _drive_entry(path, name)
+                if entry:
+                    drives.append(entry)
+    return drives
+
+
+def get_removable_drives():
+    if PLATFORM == "windows":
+        return _get_removable_drives_windows()
+    if PLATFORM == "chromeos":
+        return _get_removable_drives_chromeos()
+    if PLATFORM == "mac":
+        return _get_removable_drives_mac()
+    return _get_removable_drives_linux()
 
 
 def get_common_folders():
@@ -151,8 +250,8 @@ def collect_files(selected_paths):
     return plan, total_size
 
 
-CHECKLIST_CONTENT = """FRESH START CHECKLIST
-======================
+CHECKLIST_CONTENT_WINDOWS = """FRESH START CHECKLIST (Windows)
+================================
 Made for you by CleanSlate on {date}
 
 Before you wipe your PC:
@@ -179,6 +278,78 @@ After Windows is reinstalled:
 
 -- CleanSlate v{version}
 """
+
+CHECKLIST_CONTENT_CHROMEOS = """FRESH START CHECKLIST (ChromeOS)
+=================================
+Made for you by CleanSlate on {date}
+
+Before you Powerwash:
+  [ ] Confirm this backup finished with no errors
+  [ ] Make sure you know your Google Account password (you'll sign back in after)
+  [ ] Note your Wi-Fi password if it isn't saved anywhere else
+  [ ] Double-check important files are synced to Google Drive
+  [ ] Make sure your Chromebook is charged or plugged in
+
+To Powerwash your Chromebook:
+  [ ] Open Settings > About ChromeOS > Powerwash this device
+      (or hold Ctrl+Alt+Shift+R at the sign-in screen)
+  [ ] Follow the on-screen confirmation steps
+  [ ] Sign back in with your Google Account when it restarts
+
+After the Powerwash:
+  [ ] Reconnect to Wi-Fi
+  [ ] Sign back into your Google Account
+  [ ] Re-share this drive with Linux (Files app > right-click > Share with Linux)
+  [ ] Copy your files back and reinstall your favorite apps
+  [ ] Breathe. You did it. Enjoy the clean, fast Chromebook!
+
+-- CleanSlate v{version}
+"""
+
+
+def get_checklist_content():
+    return CHECKLIST_CONTENT_CHROMEOS if PLATFORM == "chromeos" else CHECKLIST_CONTENT_WINDOWS
+
+
+def get_checklist_sections():
+    if PLATFORM == "chromeos":
+        return [
+            ("Before you Powerwash", [
+                "This backup finished with no errors",
+                "I know my Google Account password",
+                "Wrote down my Wi-Fi password (if needed)",
+                "Confirmed files are synced to Google Drive",
+            ]),
+            ("Doing the Powerwash", [
+                "Opened Settings > About ChromeOS > Powerwash this device",
+                "Followed the on-screen confirmation steps",
+            ]),
+            ("After the Powerwash", [
+                "Reconnected to Wi-Fi and signed back in",
+                "Re-shared this drive with Linux, if I use Linux apps",
+                "Copied my files back and reinstalled my favorite apps",
+            ]),
+        ]
+    return [
+        ("Before you wipe your PC", [
+            "This backup finished with no errors",
+            "Wrote down my Wi-Fi password",
+            "Noted any software license/product keys",
+            "Signed out of apps with device limits",
+            "Confirmed cloud-synced files are up to date",
+        ]),
+        ("Doing the clean install", [
+            "Got the official Media Creation Tool from microsoft.com",
+            "Created install media on a DIFFERENT usb drive",
+            "Booted from that install USB and chose Custom install",
+        ]),
+        ("After Windows is reinstalled", [
+            "Reconnected to Wi-Fi",
+            "Installed graphics/chipset drivers",
+            "Copied my files back from this drive",
+            "Reinstalled my favorite apps",
+        ]),
+    ]
 
 
 # ----------------------------------------------------------------------
@@ -407,7 +578,14 @@ class CleanSlateApp(tk.Tk):
         StepDots(outer, 0).pack(anchor="w", pady=(0, 22))
         tk.Label(outer, text="Choose your drive", font=FONT_H2, bg=COLOR_BG, fg=COLOR_TEXT)\
             .pack(anchor="w")
-        tk.Label(outer, text="Plug in a USB drive and tap it below.", font=FONT_BODY,
+
+        if PLATFORM == "chromeos":
+            hint = ("Plug in a USB drive, then in the Files app right-click it and\n"
+                    "choose \"Share with Linux\". Then tap Refresh below.")
+        else:
+            hint = "Plug in a USB drive and tap it below."
+
+        tk.Label(outer, text=hint, font=FONT_BODY, justify="left",
                  bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", pady=(2, 18))
 
         self.drive_list_holder = tk.Frame(outer, bg=COLOR_BG)
@@ -418,9 +596,8 @@ class CleanSlateApp(tk.Tk):
         btn_row.pack(fill="x", pady=(18, 0))
         PillButton(btn_row, "Refresh", command=self.render_drives, kind="ghost",
                    width=130, height=46, bg=COLOR_BG).pack(side="left")
-        if os.name != "nt":
-            PillButton(btn_row, "Choose a Folder", command=self.pick_drive_manually,
-                       kind="ghost", width=180, height=46, bg=COLOR_BG).pack(side="left", padx=(10, 0))
+        PillButton(btn_row, "Choose a Folder", command=self.pick_drive_manually,
+                   kind="ghost", width=180, height=46, bg=COLOR_BG).pack(side="left", padx=(10, 0))
         PillButton(btn_row, "Next", command=self.confirm_drive, width=140, height=46,
                    bg=COLOR_BG).pack(side="right")
 
@@ -431,15 +608,15 @@ class CleanSlateApp(tk.Tk):
 
         drives = get_removable_drives()
 
-        if os.name != "nt":
-            tk.Label(self.drive_list_holder,
-                     text="Automatic detection only works on Windows.\nUse 'Choose a Folder' instead.",
-                     font=FONT_BODY, bg=COLOR_BG, fg=COLOR_MUTED, justify="left").pack(anchor="w", pady=20)
-            return
-
         if not drives:
-            tk.Label(self.drive_list_holder, text="No USB drive detected yet. Plug one in and tap Refresh.",
-                     font=FONT_BODY, bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", pady=20)
+            if PLATFORM == "chromeos":
+                msg = ("No shared USB drive detected yet.\n"
+                       "Share it with Linux from the Files app, then tap Refresh -\n"
+                       "or use 'Choose a Folder' below.")
+            else:
+                msg = "No USB drive detected yet. Plug one in and tap Refresh."
+            tk.Label(self.drive_list_holder, text=msg, font=FONT_BODY, justify="left",
+                     bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", pady=20)
             return
 
         for d in drives:
@@ -675,7 +852,7 @@ class CleanSlateApp(tk.Tk):
             try:
                 checklist_path = os.path.join(self.backup_dest_folder, "Fresh-Start-Checklist.txt")
                 with open(checklist_path, "w", encoding="utf-8") as f:
-                    f.write(CHECKLIST_CONTENT.format(
+                    f.write(get_checklist_content().format(
                         date=datetime.date.today().isoformat(), version=APP_VERSION))
             except Exception:
                 pass
@@ -746,8 +923,16 @@ class CleanSlateApp(tk.Tk):
         StepDots(outer, 3).pack(anchor="w", pady=(0, 22))
         tk.Label(outer, text="Your Fresh Start plan", font=FONT_H2, bg=COLOR_BG, fg=COLOR_TEXT)\
             .pack(anchor="w")
-        tk.Label(outer, text="Work through this before and after your clean install.",
-                 font=FONT_BODY, bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", pady=(2, 16))
+
+        if PLATFORM == "chromeos":
+            subtitle = "Work through this before and after you Powerwash."
+            install_label, install_url = "Learn about Powerwash", "https://support.google.com/chromebook/answer/183084"
+        else:
+            subtitle = "Work through this before and after your clean install."
+            install_label, install_url = "Get Install Media", "https://www.microsoft.com/software-download/windows11"
+
+        tk.Label(outer, text=subtitle, font=FONT_BODY, bg=COLOR_BG, fg=COLOR_MUTED)\
+            .pack(anchor="w", pady=(2, 16))
 
         canvas = tk.Canvas(outer, bg=COLOR_BG, highlightthickness=0, bd=0)
         canvas.pack(side="left", fill="both", expand=True)
@@ -755,28 +940,7 @@ class CleanSlateApp(tk.Tk):
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
 
-        sections = [
-            ("Before you wipe your PC", [
-                "This backup finished with no errors",
-                "Wrote down my Wi-Fi password",
-                "Noted any software license/product keys",
-                "Signed out of apps with device limits",
-                "Confirmed cloud-synced files are up to date",
-            ]),
-            ("Doing the clean install", [
-                "Got the official Media Creation Tool from microsoft.com",
-                "Created install media on a DIFFERENT usb drive",
-                "Booted from that install USB and chose Custom install",
-            ]),
-            ("After Windows is reinstalled", [
-                "Reconnected to Wi-Fi",
-                "Installed graphics/chipset drivers",
-                "Copied my files back from this drive",
-                "Reinstalled my favorite apps",
-            ]),
-        ]
-
-        for section_title, items in sections:
+        for section_title, items in get_checklist_sections():
             tk.Label(scroll_frame, text=section_title, font=FONT_BODY_BOLD,
                      bg=COLOR_BG, fg=COLOR_BLUE_HINT).pack(anchor="w", pady=(10, 6))
             for item_text in items:
@@ -784,9 +948,8 @@ class CleanSlateApp(tk.Tk):
 
         btn_row = tk.Frame(outer, bg=COLOR_BG)
         btn_row.pack(fill="x", side="bottom", pady=(18, 0))
-        PillButton(btn_row, "Get Install Media", kind="ghost", width=190, height=46,
-                   command=lambda: webbrowser.open("https://www.microsoft.com/software-download/windows11"),
-                   bg=COLOR_BG).pack(side="left")
+        PillButton(btn_row, install_label, kind="ghost", width=190, height=46,
+                   command=lambda: webbrowser.open(install_url), bg=COLOR_BG).pack(side="left")
         PillButton(btn_row, "Open Backup Folder", kind="ghost", width=190, height=46,
                    command=self.open_backup_folder, bg=COLOR_BG).pack(side="left", padx=(10, 0))
         PillButton(btn_row, "Finish", kind="success", command=self.destroy,
@@ -818,16 +981,23 @@ class CleanSlateApp(tk.Tk):
         label.bind("<Button-1>", toggle)
 
     def open_backup_folder(self):
-        if self.backup_dest_folder and os.path.isdir(self.backup_dest_folder):
+        if not (self.backup_dest_folder and os.path.isdir(self.backup_dest_folder)):
+            messagebox.showinfo(APP_NAME, "No backup folder yet.")
+            return
+        try:
+            if PLATFORM == "windows":
+                os.startfile(self.backup_dest_folder)
+            elif PLATFORM == "mac":
+                subprocess.run(["open", self.backup_dest_folder], check=False)
+            else:
+                # Linux and ChromeOS's Crostini both understand xdg-open;
+                # on ChromeOS it hands the folder off to the Files app.
+                subprocess.run(["xdg-open", self.backup_dest_folder], check=False)
+        except Exception:
             try:
-                if os.name == "nt":
-                    os.startfile(self.backup_dest_folder)
-                else:
-                    webbrowser.open(f"file://{self.backup_dest_folder}")
+                webbrowser.open(f"file://{self.backup_dest_folder}")
             except Exception as e:
                 messagebox.showerror(APP_NAME, f"Couldn't open that folder:\n{e}")
-        else:
-            messagebox.showinfo(APP_NAME, "No backup folder yet.")
 
 
 def main():
