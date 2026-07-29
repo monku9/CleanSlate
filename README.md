@@ -46,7 +46,7 @@ action per screen. It's meant to feel calm, not like software.
 1. Install [Python 3.8 or newer](https://www.python.org/downloads/) (tkinter comes bundled automatically on Windows).
 2. Download or clone this repo:
    ```bash
-   git clone https://github.com/YOUR-USERNAME/cleanslate.git
+   git clone https://github.com/monku9/cleanslate.git
    cd cleanslate
    ```
 3. Run it:
