@@ -1,0 +1,8 @@
+# CleanSlate has ZERO external dependencies for running the app.
+# It only uses Python's standard library (tkinter, shutil, os, ctypes, etc.)
+#
+# PyInstaller is only needed if you want to build a standalone .exe
+# (see build.bat) - it is NOT required to just run "python app.py".
+#
+# Requirement: Python 3.8+ (with tkinter, which ships with most Python
+# installers on Windows)
