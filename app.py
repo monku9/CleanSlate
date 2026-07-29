@@ -34,7 +34,7 @@ if os.name == "nt":
     import ctypes
 
 APP_NAME = "CleanSlate"
-APP_VERSION = "2.1"
+APP_VERSION = "2.2"
 
 
 def detect_platform():
@@ -250,8 +250,8 @@ def collect_files(selected_paths):
     return plan, total_size
 
 
-CHECKLIST_CONTENT_WINDOWS = """FRESH START CHECKLIST (Windows)
-================================
+CHECKLIST_CONTENT_WINDOWS = """FRESH START CHECKLIST (Reinstall Windows)
+===========================================
 Made for you by CleanSlate on {date}
 
 Before you wipe your PC:
@@ -306,13 +306,50 @@ After the Powerwash:
 -- CleanSlate v{version}
 """
 
+CHECKLIST_CONTENT_LINUX_SWITCH = """FRESH START CHECKLIST (Switching to Linux)
+============================================
+Made for you by CleanSlate on {date}
 
-def get_checklist_content():
-    return CHECKLIST_CONTENT_CHROMEOS if PLATFORM == "chromeos" else CHECKLIST_CONTENT_WINDOWS
+Before you switch:
+  [ ] Confirm this backup finished with no errors
+  [ ] Searched "[your PC model] linux" to check Wi-Fi/GPU/printer support
+  [ ] Turned off BitLocker, or saved my BitLocker recovery key somewhere safe
+  [ ] Exported browser bookmarks and saved passwords
+  [ ] Noted any Windows-only software I'll need a replacement for
+  [ ] Decided: replace Windows entirely, or dual-boot alongside it?
+
+Doing the switch:
+  [ ] Picked a beginner-friendly distro (Linux Mint, Ubuntu, and Zorin OS are
+      all solid, Windows-like starting points)
+  [ ] Downloaded the official ISO straight from the distro's own website
+  [ ] Made a bootable USB with Rufus or balenaEtcher on a DIFFERENT usb drive
+      (not this backup drive!)
+  [ ] Restarted, turned off Secure Boot in the BIOS/UEFI if needed, and
+      booted from that install USB
+  [ ] Chose "Erase disk and install" for a full switch, or "Install
+      alongside Windows" to dual-boot instead
+  [ ] Followed the on-screen setup steps
+
+After you switch:
+  [ ] Connected to Wi-Fi and ran system updates
+  [ ] Plugged this drive back in and copied your files back over
+  [ ] Found Linux alternatives for your old apps (LibreOffice, GIMP, etc.)
+  [ ] Explored your distro's software store for more apps
+  [ ] Breathe. You did it. Enjoy your new OS!
+
+-- CleanSlate v{version}
+"""
 
 
-def get_checklist_sections():
-    if PLATFORM == "chromeos":
+def get_checklist_content(path):
+    return {
+        "chromeos_powerwash": CHECKLIST_CONTENT_CHROMEOS,
+        "linux_switch": CHECKLIST_CONTENT_LINUX_SWITCH,
+    }.get(path, CHECKLIST_CONTENT_WINDOWS)
+
+
+def get_checklist_sections(path):
+    if path == "chromeos_powerwash":
         return [
             ("Before you Powerwash", [
                 "This backup finished with no errors",
@@ -328,6 +365,29 @@ def get_checklist_sections():
                 "Reconnected to Wi-Fi and signed back in",
                 "Re-shared this drive with Linux, if I use Linux apps",
                 "Copied my files back and reinstalled my favorite apps",
+            ]),
+        ]
+    if path == "linux_switch":
+        return [
+            ("Before you switch", [
+                "This backup finished with no errors",
+                "Checked that my Wi-Fi/GPU/printer plays nice with Linux",
+                "Turned off BitLocker or saved my recovery key",
+                "Exported browser bookmarks and saved passwords",
+                "Decided: replace Windows entirely, or dual-boot?",
+            ]),
+            ("Doing the switch", [
+                "Picked a beginner-friendly distro (Mint, Ubuntu, Zorin OS)",
+                "Downloaded the official ISO from the distro's website",
+                "Made a bootable USB with Rufus or balenaEtcher (a different drive!)",
+                "Disabled Secure Boot if needed, then booted from that USB",
+                "Chose 'Erase disk' for a full switch, or 'Install alongside' to dual-boot",
+            ]),
+            ("After you switch", [
+                "Connected to Wi-Fi and ran system updates",
+                "Copied my files back from this drive",
+                "Found Linux alternatives for my old apps",
+                "Explored my distro's software store for more apps",
             ]),
         ]
     return [
@@ -542,6 +602,7 @@ class CleanSlateApp(tk.Tk):
         self.backup_started_at = None
         self.drive_cards = []
         self.folder_chips = {}
+        self.fresh_start_path = None  # "windows_reinstall" | "chromeos_powerwash" | "linux_switch"
 
         self.container = tk.Frame(self, bg=COLOR_BG)
         self.container.pack(fill="both", expand=True)
@@ -849,13 +910,9 @@ class CleanSlateApp(tk.Tk):
                 done_count += 1
                 self.progress_queue.put(("progress", done_bytes, done_count, total_count, rel))
 
-            try:
-                checklist_path = os.path.join(self.backup_dest_folder, "Fresh-Start-Checklist.txt")
-                with open(checklist_path, "w", encoding="utf-8") as f:
-                    f.write(get_checklist_content().format(
-                        date=datetime.date.today().isoformat(), version=APP_VERSION))
-            except Exception:
-                pass
+            # The Fresh Start checklist gets written to the drive once the
+            # user picks "Reinstall" or "Switch OS" in the next step -
+            # we don't know which one they want yet.
 
             self.progress_queue.put(("done", done_count, total_count))
         except Exception as e:
@@ -920,19 +977,57 @@ class CleanSlateApp(tk.Tk):
         outer = tk.Frame(self.container, bg=COLOR_BG)
         outer.pack(fill="both", expand=True, padx=36, pady=28)
 
-        StepDots(outer, 3).pack(anchor="w", pady=(0, 22))
+        # Figure out which checklist path applies. ChromeOS only offers
+        # Powerwash. Windows lets the user pick between reinstalling
+        # Windows or switching to Linux entirely.
+        if PLATFORM == "chromeos":
+            path = "chromeos_powerwash"
+        elif PLATFORM == "windows":
+            path = self.fresh_start_path or "windows_reinstall"
+        else:
+            path = "windows_reinstall"
+        self.fresh_start_path = path
+
+        StepDots(outer, 3).pack(anchor="w", pady=(0, 18))
         tk.Label(outer, text="Your Fresh Start plan", font=FONT_H2, bg=COLOR_BG, fg=COLOR_TEXT)\
             .pack(anchor="w")
 
-        if PLATFORM == "chromeos":
-            subtitle = "Work through this before and after you Powerwash."
-            install_label, install_url = "Learn about Powerwash", "https://support.google.com/chromebook/answer/183084"
-        else:
-            subtitle = "Work through this before and after your clean install."
-            install_label, install_url = "Get Install Media", "https://www.microsoft.com/software-download/windows11"
+        # The mode picker - only Windows gets a real choice here.
+        if PLATFORM == "windows":
+            tk.Label(outer, text="What are you doing next?", font=FONT_BODY,
+                     bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", pady=(4, 10))
+            mode_row = tk.Frame(outer, bg=COLOR_BG)
+            mode_row.pack(anchor="w", pady=(0, 16))
 
-        tk.Label(outer, text=subtitle, font=FONT_BODY, bg=COLOR_BG, fg=COLOR_MUTED)\
+            reinstall_chip = ToggleChip(mode_row, "Reinstall Windows",
+                                         on_toggle=lambda c: self.set_fresh_start_path("windows_reinstall"),
+                                         width=210, height=48, bg=COLOR_BG)
+            reinstall_chip.pack(side="left", padx=(0, 10))
+            switch_chip = ToggleChip(mode_row, "Switch to Linux",
+                                      on_toggle=lambda c: self.set_fresh_start_path("linux_switch"),
+                                      width=210, height=48, bg=COLOR_BG)
+            switch_chip.pack(side="left")
+            reinstall_chip.set_active(path == "windows_reinstall")
+            switch_chip.set_active(path == "linux_switch")
+
+        subtitles = {
+            "windows_reinstall": "Work through this before and after your clean install.",
+            "chromeos_powerwash": "Work through this before and after you Powerwash.",
+            "linux_switch": "Work through this before and after you switch to Linux.",
+        }
+        install_options = {
+            "windows_reinstall": ("Get Install Media", "https://www.microsoft.com/software-download/windows11"),
+            "chromeos_powerwash": ("Learn about Powerwash", "https://support.google.com/chromebook/answer/183084"),
+            "linux_switch": ("Get Ubuntu Desktop", "https://ubuntu.com/download/desktop"),
+        }
+        install_label, install_url = install_options[path]
+
+        tk.Label(outer, text=subtitles[path], font=FONT_BODY, bg=COLOR_BG, fg=COLOR_MUTED)\
             .pack(anchor="w", pady=(2, 16))
+
+        # Save the matching checklist onto the drive so it's there even
+        # after the PC gets wiped. Re-saved every time the mode changes.
+        self.save_checklist_to_drive(path)
 
         canvas = tk.Canvas(outer, bg=COLOR_BG, highlightthickness=0, bd=0)
         canvas.pack(side="left", fill="both", expand=True)
@@ -940,7 +1035,7 @@ class CleanSlateApp(tk.Tk):
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
 
-        for section_title, items in get_checklist_sections():
+        for section_title, items in get_checklist_sections(path):
             tk.Label(scroll_frame, text=section_title, font=FONT_BODY_BOLD,
                      bg=COLOR_BG, fg=COLOR_BLUE_HINT).pack(anchor="w", pady=(10, 6))
             for item_text in items:
@@ -954,6 +1049,21 @@ class CleanSlateApp(tk.Tk):
                    command=self.open_backup_folder, bg=COLOR_BG).pack(side="left", padx=(10, 0))
         PillButton(btn_row, "Finish", kind="success", command=self.destroy,
                    width=140, height=46, bg=COLOR_BG).pack(side="right")
+
+    def set_fresh_start_path(self, path):
+        self.fresh_start_path = path
+        self.go_step_checklist()
+
+    def save_checklist_to_drive(self, path):
+        if not (self.backup_dest_folder and os.path.isdir(self.backup_dest_folder)):
+            return
+        try:
+            checklist_path = os.path.join(self.backup_dest_folder, "Fresh-Start-Checklist.txt")
+            with open(checklist_path, "w", encoding="utf-8") as f:
+                f.write(get_checklist_content(path).format(
+                    date=datetime.date.today().isoformat(), version=APP_VERSION))
+        except Exception:
+            pass
 
     def _make_checklist_row(self, parent, text):
         row = tk.Frame(parent, bg=COLOR_BG)
