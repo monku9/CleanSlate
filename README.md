@@ -44,11 +44,9 @@ action per screen. It's meant to feel calm, not like software.
 
 ## 🚀 Getting Started
 
-### Before you continue with the options.
 
-At the top of the git press Code and press "Download ZIP"
 
-### Option A — Just run the Python script (easiest for developers)
+## Option A — Just run the Python script (easiest for developers)
 
 1. Install [Python 3.8 or newer](https://www.python.org/downloads/) (tkinter comes bundled automatically on Windows).
 2. Download or clone this repo:
@@ -63,8 +61,13 @@ At the top of the git press Code and press "Download ZIP"
 
 No `pip install` needed — CleanSlate only uses Python's standard library.
 
-### Option B — Build a standalone .exe (easiest for everyone else)
 
+
+## Option B — Build a standalone .exe (easiest for everyone else)
+
+ #### Before you continue with Option B, follow this step. ↓
+ #### At the top of the repository press Code and press "Download ZIP"
+ ---
 If you want a double-click app with no Python required:
 
 1. Make sure Python is installed (see above).
