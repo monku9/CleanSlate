@@ -1,4 +1,4 @@
-## <img width="2720" height="880" alt="cleanslate_usb_logo" src="https://github.com/user-attachments/assets/ae901986-f8ee-4ea8-b67d-67df9c6c27ed" />
+# 💜 CleanSlate
 
 **The friendliest way to back up your files before a clean Windows install.**
 
