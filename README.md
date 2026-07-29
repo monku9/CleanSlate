@@ -5,12 +5,6 @@
 Plug in a flash drive. Pick your files. Tap a button. Done.
 No accounts, no cloud, no confusing options — just a simple 4-step wizard
 that anyone who just got their first PC can follow without help.
-
-![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows)
-![Python](https://img.shields.io/badge/python-3.8%2B-blue?style=flat-square&logo=python)
-![License](https://img.shields.io/badge/license-MIT-8B5CF6?style=flat-square)
-![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen?style=flat-square)
-
 ---
 
 ## ✨ Why CleanSlate?
