@@ -44,6 +44,10 @@ action per screen. It's meant to feel calm, not like software.
 
 ## 🚀 Getting Started
 
+### Before you continue with the options.
+
+At the top of the git press Code and press "Download ZIP"
+
 ### Option A — Just run the Python script (easiest for developers)
 
 1. Install [Python 3.8 or newer](https://www.python.org/downloads/) (tkinter comes bundled automatically on Windows).
