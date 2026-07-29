@@ -4,7 +4,8 @@
 
 Plug in a flash drive. Pick your files. Tap a button. Done.
 No accounts, no cloud, no confusing options — just a simple 4-step wizard
-that anyone who just got their first PC can follow without help.
+that anyone who just got their first PC can follow without help
+
 ---
 
 ## ✨ Why CleanSlate?
