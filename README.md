@@ -93,9 +93,10 @@ No `pip install` needed — CleanSlate only uses Python's standard library.
 If you want a double-click app with no Python required:
 
 1. Make sure Python is installed (see above).
-2. Double-click `build.bat` (or run it from a terminal).
-3. Grab `CleanSlate.exe` from the new `dist` folder.
-4. Share that `.exe` with anyone — it runs on its own.
+2. Go download the [Latest Release](https://github.com/monku9/CleanSlate/releases/latest) and extract the Source Code ZIP file.
+3. Double-click `build.bat` (or run it from a terminal).
+4. Grab `CleanSlate.exe` from the new `dist` folder.
+5. Share that `.exe` with anyone — it runs on its own.
 
 > **Having trouble with `build.bat`?** Some Python installs (especially the
 > newer per-user "Python Install Manager" installs) don't add PyInstaller's
