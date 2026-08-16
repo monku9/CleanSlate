@@ -1,4 +1,4 @@
-# 💜 CleanSlate
+<img width="2720" height="880" alt="cleanslate_usb_logo" src="https://github.com/user-attachments/assets/df8becce-6aeb-4e8c-b9a7-653dd78428d1" />
 
 **The friendliest way to back up your files before a clean Windows install.**
 
